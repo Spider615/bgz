@@ -18,7 +18,10 @@
     apiBase: 'https://insight.juzibot.com',
     botAvatar: null,
     trackingEndpoint: 'http://localhost:3200/api/track/collect',
-    enableTracking: true
+    enableTracking: true,
+    agentId: null,
+    agentConfigEndpoint: null,
+    presetQuestions: null
   };
 
   var config = {};
@@ -38,6 +41,14 @@
   var trackUserId = null;
   var trackQueue = [];
   var trackTimer = null;
+  var sessionMode = 'ai';
+  var pollingTimer = null;
+  var lastMessageId = 0;
+  var pollingFailCount = 0;
+  var POLLING_INTERVAL = 3000;
+  var POLLING_SLOW_INTERVAL = 10000;
+  var POLLING_FAIL_THRESHOLD = 3;
+  var widgetBuilt = false;
 
   Object.keys(DEFAULT_CONFIG).forEach(function (k) {
     config[k] = DEFAULT_CONFIG[k];
@@ -101,18 +112,22 @@
     };
 
     try {
+      var jsonBody = JSON.stringify(payload);
       if (navigator.sendBeacon) {
-        navigator.sendBeacon(config.trackingEndpoint, JSON.stringify(payload));
+        var blob = new Blob([jsonBody], { type: 'application/json' });
+        navigator.sendBeacon(config.trackingEndpoint, blob);
       } else {
         fetch(config.trackingEndpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: jsonBody,
           keepalive: true
-        }).catch(function () {});
+        }).catch(function (err) {
+          console.warn('[AI Chat Widget] 埋点上报失败:', err);
+        });
       }
     } catch (e) {
-      // 上报失败不影响主流程
+      console.warn('[AI Chat Widget] 埋点上报异常:', e);
     }
   }
 
@@ -464,6 +479,20 @@
     '.chat-msg.user .msg-bubble .md-inline-code{background:rgba(255,255,255,0.2);}' +
     '.chat-msg.user .msg-bubble .md-link{color:#fff;text-decoration:underline;}' +
     '.chat-msg.user .msg-bubble .md-blockquote{border-left-color:rgba(255,255,255,0.4);color:rgba(255,255,255,0.85);background:rgba(255,255,255,0.08);}' +
+    '.chat-msg.system{align-self:center;max-width:90%;text-align:center;}' +
+    '.chat-msg.system .msg-bubble{background:#f0f0f0;color:#888;font-size:12px;padding:6px 14px;border-radius:12px;}' +
+    '.chat-session-divider{display:flex;align-items:center;gap:12px;margin:16px 0;align-self:stretch;max-width:100%;}' +
+    '.chat-session-divider::before,.chat-session-divider::after{content:"";flex:1;height:1px;background:#ddd;}' +
+    '.chat-session-divider span{font-size:11px;color:#bbb;white-space:nowrap;}' +
+    '.chat-msg.agent{align-self:flex-start;}' +
+    '.chat-msg.agent .msg-avatar{background:linear-gradient(135deg,#43b581,#2d8b5e);color:white;}' +
+    '.chat-msg.agent .msg-bubble{background:#e8f5e9;color:#333;border-bottom-left-radius:4px;}' +
+    '#ai-chat-window .chat-header .header-handoff-btn,#ai-chat-window .chat-header .header-end-btn{display:none;}' +
+    '#ai-chat-window .chat-action-bar{display:flex;gap:8px;padding:8px 16px;border-top:1px solid #eee;flex-shrink:0;background:#fafafa;}' +
+    '#ai-chat-window .chat-action-bar .action-handoff-btn,#ai-chat-window .chat-action-bar .action-end-btn{flex:1;height:32px;border-radius:16px;border:1px solid #e0e0e0;background:white;cursor:pointer;font-size:12px;color:#555;transition:all .2s;}' +
+    '#ai-chat-window .chat-action-bar .action-handoff-btn:hover{border-color:#667eea;color:#667eea;background:#f8f9ff;}' +
+    '#ai-chat-window .chat-action-bar .action-end-btn:hover{border-color:#ea4335;color:#ea4335;background:#fff5f5;}' +
+    '#ai-chat-window .chat-action-bar .action-handoff-btn:disabled{opacity:0.4;cursor:not-allowed;border-color:#e0e0e0;color:#999;background:#f5f5f5;}' +
     '@media(max-width:480px){#ai-chat-window{width:100vw;height:100vh;max-height:100vh;border-radius:0;bottom:0!important;left:0!important;right:0!important;}}';
   }
 
@@ -495,9 +524,15 @@
           '<div class="header-title">' + escapeHtml(config.title) + '</div>' +
           '<div class="header-subtitle">' + escapeHtml(config.subtitle) + '</div>' +
         '</div>' +
+        '<button class="header-handoff-btn" id="ai-chat-handoff" style="display:none;">转人工</button>' +
+        '<button class="header-end-btn" id="ai-chat-end-session" style="display:none;">结束会话</button>' +
         '<button class="header-close" aria-label="关闭聊天">' + ICON_CLOSE + '</button>' +
       '</div>' +
       '<div class="chat-messages" id="ai-chat-messages"></div>' +
+      '<div class="chat-action-bar" id="ai-chat-action-bar">' +
+        '<button class="action-handoff-btn" id="ai-chat-handoff-bar">转人工</button>' +
+        '<button class="action-end-btn" id="ai-chat-end-bar">结束会话</button>' +
+      '</div>' +
       '<div class="chat-input-area">' +
         '<textarea id="ai-chat-input" rows="1" placeholder="' + escapeHtml(config.placeholder) + '" aria-label="输入消息"></textarea>' +
         '<button class="send-btn" id="ai-chat-send" aria-label="发送消息">' + ICON_SEND + '</button>' +
@@ -512,6 +547,19 @@
     setupCloseBtn(win);
     setupInput(win);
     setupKeyboard(bubble, win);
+
+    var handoffBtn = document.getElementById('ai-chat-handoff-bar');
+    if (handoffBtn) {
+      handoffBtn.addEventListener('click', function () {
+        requestHandoff();
+      });
+    }
+    var endSessionBtn = document.getElementById('ai-chat-end-bar');
+    if (endSessionBtn) {
+      endSessionBtn.addEventListener('click', function () {
+        resetSession();
+      });
+    }
 
     if (config.welcomeMessage) {
       appendMessageDOM('bot', config.welcomeMessage, true);
@@ -684,8 +732,10 @@
     appendMessageDOM('user', text);
     chatHistory.push({ text: text, isSelf: false }); // isSelf=false means user (not bot)
 
-    // 埋点：用户消息
-    trackEvent({ type: 'message', role: 'user', content: text });
+    // 埋点：用户消息（仅 AI 模式，human 模式由 /api/chat/message 存储）
+    if (sessionMode !== 'human') {
+      trackEvent({ type: 'message', role: 'user', content: text });
+    }
 
     input.value = '';
     input.style.height = 'auto';
@@ -693,6 +743,15 @@
 
     // Show typing indicator
     showTyping();
+
+    // If in human mode, send via human mode API
+    if (sessionMode === 'human') {
+      hideTyping();
+      sendHumanModeMessage(text);
+      isSending = false;
+      sendBtn.disabled = false;
+      return;
+    }
 
     // Create a placeholder for streaming bot response
     var botMsgId = 'bot-msg-' + (++messageIdCounter);
@@ -709,7 +768,13 @@
       // onDone
       function (finalText) {
         hideTyping();
-        var responseTimeMs = Date.now() - sendStartTime;
+        var responseTimeMs = null;
+        if (typeof sendStartTime === 'number' && isFinite(sendStartTime)) {
+          var elapsed = Date.now() - sendStartTime;
+          if (isFinite(elapsed) && !isNaN(elapsed)) {
+            responseTimeMs = elapsed;
+          }
+        }
         if (!finalText) finalText = streamingText;
         if (finalText) {
           updateOrCreateStreamMsg(botMsgId, finalText, false);
@@ -819,12 +884,25 @@
     if (el) el.remove();
   }
 
+  function appendSystemMessage(text) {
+    var container = document.getElementById('ai-chat-messages');
+    var div = document.createElement('div');
+    div.className = 'chat-msg system';
+    div.innerHTML =
+      '<div class="msg-content" style="width:100%;text-align:center;">' +
+        '<div class="msg-bubble" style="display:inline-block;">' + escapeHtml(text) + '</div>' +
+      '</div>';
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  }
+
   function addQuickActions() {
     var container = document.getElementById('ai-chat-messages');
     var div = document.createElement('div');
     div.className = 'quick-actions';
     div.id = 'quick-actions';
-    var actions = ['你能做什么？', '帮我写代码', '解释一个概念', '翻译文本'];
+    var actions = config.presetQuestions || ['你能做什么？', '帮我写代码', '解释一个概念', '翻译文本'];
+    if (actions.length === 0) return;
     actions.forEach(function (text) {
       var btn = document.createElement('button');
       btn.textContent = text;
@@ -1045,29 +1123,301 @@
     return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
   }
 
+  /* ========== Server Base URL Helper ========== */
+  function getServerBaseUrl() {
+    try {
+      var url = new URL(config.trackingEndpoint);
+      return url.origin;
+    } catch (e) {
+      // Fallback: strip path manually
+      var endpoint = config.trackingEndpoint;
+      var protoEnd = endpoint.indexOf('://');
+      if (protoEnd === -1) return endpoint;
+      var pathStart = endpoint.indexOf('/', protoEnd + 3);
+      if (pathStart === -1) return endpoint;
+      return endpoint.substring(0, pathStart);
+    }
+  }
+
+  /* ========== Handoff: 转人工 ========== */
+  function requestHandoff() {
+    // 确保 session_start 事件已上报，session 在数据库中存在
+    flushTrackQueue();
+    var handoffUrl = config.trackingEndpoint.replace('/api/track/collect', '/api/track/handoff');
+    var userId = getOrCreateUserId();
+
+    function doHandoff(retryCount) {
+      fetch(handoffUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sessionId, userId: userId })
+      })
+      .then(function (res) {
+        if (res.status === 404 && retryCount < 2) {
+          // session 可能还未入库，等待后重试
+          setTimeout(function () { doHandoff(retryCount + 1); }, 1000);
+          return;
+        }
+        if (!res.ok) throw new Error('Handoff failed: ' + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data) return; // 重试中，跳过
+        sessionMode = 'human';
+        appendSystemMessage('已转接人工客服，请稍候...');
+        var handoffBtn = document.getElementById('ai-chat-handoff-bar');
+        if (handoffBtn) handoffBtn.disabled = true;
+        startPolling();
+        trackEvent({ type: 'handoff_to_human', sessionId: sessionId });
+      })
+      .catch(function () {
+        appendSystemMessage('转接人工客服失败，请稍后重试');
+      });
+    }
+
+    doHandoff(0);
+  }
+
+  /* ========== Polling: 轮询新消息 ========== */
+  function startPolling() {
+    if (pollingTimer) clearInterval(pollingTimer);
+    pollingFailCount = 0;
+    pollingTimer = setInterval(function () {
+      pollNewMessages();
+    }, POLLING_INTERVAL);
+  }
+
+  function pollNewMessages() {
+    var baseUrl = getServerBaseUrl();
+    var url = baseUrl + '/api/admin/sessions/' + encodeURIComponent(sessionId) + '/new-messages?afterId=' + lastMessageId;
+
+    fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    })
+    .then(function (res) {
+      if (!res.ok) throw new Error('Poll failed: ' + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      pollingFailCount = 0;
+      // Restore normal interval if it was slowed down
+      if (pollingTimer) {
+        clearInterval(pollingTimer);
+        pollingTimer = setInterval(function () {
+          pollNewMessages();
+        }, POLLING_INTERVAL);
+      }
+      var messages = (data && data.data) ? data.data : (Array.isArray(data) ? data : []);
+      for (var i = 0; i < messages.length; i++) {
+        var msg = messages[i];
+        if (msg.role === 'agent') {
+          appendAgentMessage(msg.content);
+        }
+        if (msg.id && msg.id > lastMessageId) {
+          lastMessageId = msg.id;
+        }
+      }
+    })
+    .catch(function () {
+      pollingFailCount++;
+      if (pollingFailCount >= POLLING_FAIL_THRESHOLD) {
+        appendSystemMessage('连接中断，正在重试...');
+        if (pollingTimer) clearInterval(pollingTimer);
+        pollingTimer = setInterval(function () {
+          pollNewMessages();
+        }, POLLING_SLOW_INTERVAL);
+      }
+    });
+  }
+
+  function stopPolling() {
+    if (pollingTimer) {
+      clearInterval(pollingTimer);
+      pollingTimer = null;
+    }
+    pollingFailCount = 0;
+  }
+
+  function appendAgentMessage(text) {
+    var container = document.getElementById('ai-chat-messages');
+    var div = document.createElement('div');
+    div.className = 'chat-msg agent';
+    var timeStr = formatTime(new Date());
+    div.innerHTML =
+      '<div class="msg-avatar">🎧</div>' +
+      '<div class="msg-content">' +
+        '<div class="msg-bubble">' + formatContent(text) + '</div>' +
+        '<div class="msg-time">' + timeStr + '</div>' +
+      '</div>';
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  /* ========== Human Mode Message ========== */
+  function sendHumanModeMessage(text) {
+    var baseUrl = getServerBaseUrl();
+    var url = baseUrl + '/api/chat/message';
+    var payload = JSON.stringify({
+      sessionId: sessionId,
+      userId: getOrCreateUserId(),
+      content: text
+    });
+
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload
+    })
+    .then(function (res) {
+      if (!res.ok) throw new Error('Send failed: ' + res.status);
+      return res.json();
+    })
+    .then(function () {
+      // 消息已通过 /api/chat/message 存入数据库，无需再通过埋点重复存储
+    })
+    .catch(function () {
+      appendSystemMessage('消息发送失败，请重试');
+    });
+  }
+
+  /* ========== Reset Session: 结束会话 ========== */
+  function resetSession() {
+    stopPolling();
+    trackEvent({ type: 'session_end' });
+    sessionId = generateSessionId();
+    chatHistory = [];
+    sessionMode = 'ai';
+    lastMessageId = 0;
+    var handoffBtn = document.getElementById('ai-chat-handoff-bar');
+    if (handoffBtn) handoffBtn.disabled = false;
+
+    // 不清空聊天记录，插入分隔线标识新会话
+    var container = document.getElementById('ai-chat-messages');
+    if (container) {
+      // 移除旧的快捷操作
+      var qa = document.getElementById('quick-actions');
+      if (qa) qa.remove();
+      // 插入分隔线
+      var divider = document.createElement('div');
+      divider.className = 'chat-session-divider';
+      divider.innerHTML = '<span>以上为历史对话</span>';
+      container.appendChild(divider);
+    }
+
+    if (config.welcomeMessage) {
+      appendMessageDOM('bot', config.welcomeMessage, true);
+    }
+    addQuickActions();
+    trackEvent({ type: 'session_start' });
+    trackEvent({ type: 'session_reset' });
+  }
+
+  /* ========== Fetch Agent Config from Server ========== */
+  function getAgentConfigUrl(agentId) {
+    // 如果配置了 agentConfigEndpoint，直接使用
+    if (config.agentConfigEndpoint) {
+      return config.agentConfigEndpoint.replace('{agentId}', agentId || 'default');
+    }
+    // 否则根据 trackingEndpoint 推断服务器地址
+    var base = config.trackingEndpoint || '';
+    var serverBase = base.replace(/\/api\/track\/collect\/?$/, '');
+    if (!serverBase) return null;
+    if (agentId) {
+      return serverBase + '/api/agents/' + agentId + '/config';
+    }
+    return serverBase + '/api/agents/default/config';
+  }
+
+  function fetchAgentConfig(agentId) {
+    var url = getAgentConfigUrl(agentId);
+    if (!url) return Promise.resolve(null);
+
+    return fetch(url)
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.code !== 0 || !data.data) return null;
+        return data.data;
+      })
+      .catch(function (err) {
+        console.warn('[AI Chat Widget] 获取智能体配置失败:', err.message);
+        return null;
+      });
+  }
+
+  function applyAgentConfig(agentConfig) {
+    if (!agentConfig) return;
+    // 展示类字段：只要远程有值就覆盖（允许空字符串覆盖默认值）
+    if ('name' in agentConfig) config.title = agentConfig.name || config.title;
+    if ('subtitle' in agentConfig) config.subtitle = agentConfig.subtitle || config.subtitle;
+    if ('welcome_message' in agentConfig) config.welcomeMessage = agentConfig.welcome_message;
+    if ('primary_color' in agentConfig && agentConfig.primary_color) config.primaryColor = agentConfig.primary_color;
+    if ('preset_questions' in agentConfig && Array.isArray(agentConfig.preset_questions)) {
+      config.presetQuestions = agentConfig.preset_questions;
+    }
+    // 凭证类字段：只有非空才覆盖（避免清空本地默认凭证）
+    if (agentConfig.bot_id) config.botId = agentConfig.bot_id;
+    if (agentConfig.access_key_id) config.accessKeyId = agentConfig.access_key_id;
+    if (agentConfig.access_key_secret) config.accessKeySecret = agentConfig.access_key_secret;
+    if (agentConfig.api_base) config.apiBase = agentConfig.api_base;
+    if (agentConfig.agent_id) config.agentId = agentConfig.agent_id;
+  }
+
+  function rebuildWidget() {
+    var oldStyle = document.getElementById('ai-chat-widget-styles');
+    if (oldStyle) oldStyle.remove();
+    injectStyles();
+    var oldBubble = document.getElementById('ai-chat-bubble');
+    var oldWin = document.getElementById('ai-chat-window');
+    if (oldBubble) oldBubble.remove();
+    if (oldWin) oldWin.remove();
+    chatHistory = [];
+    messageIdCounter = 0;
+    isOpen = false;
+    isSending = false;
+    sessionMode = 'ai';
+    lastMessageId = 0;
+    pollingFailCount = 0;
+    stopPolling();
+    sessionId = generateSessionId();
+    accessToken = null;
+    tokenExpiresAt = 0;
+    buildWidget();
+  }
+
   /* ========== Public API ========== */
   window.AIChatWidget = {
     init: function (userConfig) {
+      // 标记 init 已调用，阻止 autoInit 的构建
+      widgetBuilt = true;
       if (userConfig) {
         Object.keys(userConfig).forEach(function (k) {
           config[k] = userConfig[k];
         });
       }
-      // Re-inject styles with new config
-      var oldStyle = document.getElementById('ai-chat-widget-styles');
-      if (oldStyle) oldStyle.remove();
-      injectStyles();
-      // Rebuild
-      var oldBubble = document.getElementById('ai-chat-bubble');
-      var oldWin = document.getElementById('ai-chat-window');
-      if (oldBubble) oldBubble.remove();
-      if (oldWin) oldWin.remove();
-      chatHistory = [];
-      messageIdCounter = 0;
-      isOpen = false;
-      isSending = false;
-      sessionId = generateSessionId();
-      buildWidget();
+
+      // 始终尝试从服务器拉取智能体配置
+      var agentId = config.agentId;
+      fetchAgentConfig(agentId).then(function (agentConfig) {
+        applyAgentConfig(agentConfig);
+        rebuildWidget();
+        getAccessToken().catch(function () {});
+      });
+    },
+    switchAgent: function (agentId) {
+      if (!agentId) return;
+      fetchAgentConfig(agentId).then(function (agentConfig) {
+        if (!agentConfig) {
+          console.warn('[AI Chat Widget] 智能体不存在或已停用: ' + agentId);
+          return;
+        }
+        applyAgentConfig(agentConfig);
+        accessToken = null;
+        tokenExpiresAt = 0;
+        rebuildWidget();
+        trackEvent({ type: 'agent_switch', data: { agentId: agentId } });
+        getAccessToken().catch(function () {});
+      });
     },
     open: function () {
       if (!isOpen) {
@@ -1103,6 +1453,7 @@
       addQuickActions();
     },
     destroy: function () {
+      stopPolling();
       var bubble = document.getElementById('ai-chat-bubble');
       var win = document.getElementById('ai-chat-window');
       var style = document.getElementById('ai-chat-widget-styles');
@@ -1113,6 +1464,8 @@
       isOpen = false;
       accessToken = null;
       tokenExpiresAt = 0;
+      sessionMode = 'ai';
+      lastMessageId = 0;
     }
   };
 
@@ -1120,18 +1473,26 @@
   function autoInit() {
     sessionId = generateSessionId();
     getOrCreateUserId();
-    injectStyles();
-    buildWidget();
-    // 埋点：会话开始
-    trackEvent({ type: 'session_start' });
+
+    // 始终尝试从服务器拉取智能体配置（指定 agentId 或默认智能体）
+    var agentId = config.agentId;
+    fetchAgentConfig(agentId).then(function (agentConfig) {
+      // 如果 init() 已被手动调用，跳过 autoInit 的构建
+      if (widgetBuilt) return;
+      widgetBuilt = true;
+      applyAgentConfig(agentConfig);
+      injectStyles();
+      buildWidget();
+      trackEvent({ type: 'session_start' });
+      getAccessToken().catch(function (err) {
+        console.warn('[AI Chat Widget] Pre-auth failed, will retry on first message:', err.message);
+      });
+    });
+
     // 页面关闭时上报剩余事件
     window.addEventListener('beforeunload', function () {
       trackEvent({ type: 'session_end' });
       flushTrackQueue();
-    });
-    // Pre-fetch access token
-    getAccessToken().catch(function (err) {
-      console.warn('[AI Chat Widget] Pre-auth failed, will retry on first message:', err.message);
     });
   }
 

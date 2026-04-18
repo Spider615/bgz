@@ -99,9 +99,16 @@
 
     <div class="demo-card">
       <h2>🚀 快速接入</h2>
-      <p>只需在页面底部添加一行脚本标签，即可自动连接 AI 对话：</p>
+      <p>只需在页面底部添加一行脚本标签，即可自动连接 AI 对话（自动使用后台设置的默认智能体）：</p>
       <pre>&lt;script src="chat-widget.js"&gt;&lt;/script&gt;</pre>
-      <p style="margin-top: 16px;">或者使用自定义配置：</p>
+      <p style="margin-top: 16px;">指定特定智能体（从管理后台获取 Agent ID）：</p>
+      <pre>&lt;script src="chat-widget.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  AIChatWidget.init({
+    agentId: 'agent_xxx'   // 从管理后台复制
+  });
+&lt;/script&gt;</pre>
+      <p style="margin-top: 16px;">或者完全自定义配置（不使用后台智能体）：</p>
       <pre>&lt;script src="chat-widget.js"&gt;&lt;/script&gt;
 &lt;script&gt;
   AIChatWidget.init({
@@ -119,6 +126,7 @@
 
     <div class="demo-card">
       <h2>📋 配置项说明</h2>
+      <p><code>agentId</code> - 智能体 ID（从管理后台获取，不传则使用默认智能体）</p>
       <p><code>primaryColor</code> - 主题色，默认 <code>#667eea</code></p>
       <p><code>title</code> - 聊天窗口标题，默认 "AI 助手"</p>
       <p><code>placeholder</code> - 输入框占位文字</p>
@@ -128,6 +136,7 @@
       <p><code>accessKeyId</code> - API 鉴权密钥 ID</p>
       <p><code>accessKeySecret</code> - API 鉴权密钥</p>
       <p><code>botAvatar</code> - 机器人头像 URL</p>
+      <p><code>presetQuestions</code> - 预设问题数组（会被智能体配置覆盖）</p>
     </div>
 
     <div class="demo-card">
@@ -147,9 +156,12 @@
   <div class="arrow-hint">点击悬浮球开始聊天</div>
 
   <!-- 一行代码嵌入 -->
-  <script src="chat-widget.js"></script>
+  <script src="http://localhost:3200/chat-widget.js"></script>
 
   <script>
+    AIChatWidget.init({
+      agentId: 'agent_mo41ld01_fn6jcrks'
+    });
     // 3秒后隐藏提示
     setTimeout(() => {
       document.querySelector('.arrow-hint').style.display = 'none';

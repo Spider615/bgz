@@ -1,93 +1,131 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db');
-
-// ========== 预编译 SQL ==========
-
-const upsertUser = db.prepare(`
-  INSERT INTO users (user_id, device_type, browser, os)
-  VALUES (?, ?, ?, ?)
-  ON CONFLICT(user_id) DO UPDATE SET last_seen_at = datetime('now')
-`);
-
-const insertSession = db.prepare(`
-  INSERT OR IGNORE INTO sessions (session_id, user_id, bot_id, page_url, referrer, device_type, browser, os)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-`);
-
-const insertMessage = db.prepare(`
-  INSERT INTO messages (session_id, user_id, role, content, response_time_ms)
-  VALUES (?, ?, ?, ?, ?)
-`);
-
-const updateSessionMsgCount = db.prepare(`
-  UPDATE sessions SET message_count = message_count + 1 WHERE session_id = ?
-`);
-
-const insertEvent = db.prepare(`
-  INSERT INTO events (user_id, session_id, event_type, event_data, page_url)
-  VALUES (?, ?, ?, ?, ?)
-`);
-
-const insertError = db.prepare(`
-  INSERT INTO errors (user_id, session_id, error_type, error_message)
-  VALUES (?, ?, ?, ?)
-`);
-
-const endSession = db.prepare(`
-  UPDATE sessions SET ended_at = datetime('now') WHERE session_id = ?
-`);
+const { pool } = require('../db');
 
 // ========== 上报接口：批量接收埋点数据 ==========
 
-router.post('/collect', (req, res) => {
+router.post('/collect', async (req, res) => {
   const { userId, sessionId, botId, pageUrl, referrer, device, events } = req.body;
 
-  if (!userId || !Array.isArray(events)) {
-    return res.status(400).json({ code: -1, message: '参数缺失' });
+  if (!userId) {
+    return res.status(400).json({ code: -1, message: '参数缺失: userId 为必填项' });
+  }
+  if (!Array.isArray(events) || events.length === 0) {
+    return res.status(400).json({ code: -1, message: '参数缺失: events 必须为非空数组' });
   }
 
   const deviceType = device?.type || 'unknown';
   const browser = device?.browser || 'unknown';
   const os = device?.os || 'unknown';
 
+  const conn = await pool.getConnection();
   try {
-    const runAll = db.transaction(() => {
-      // 更新用户
-      upsertUser.run(userId, deviceType, browser, os);
+    await conn.beginTransaction();
 
-      for (const evt of events) {
-        switch (evt.type) {
-          case 'session_start':
-            insertSession.run(sessionId, userId, botId || '', pageUrl || '', referrer || '', deviceType, browser, os);
-            break;
+    // 更新用户
+    await conn.query(
+      `INSERT INTO users (user_id, device_type, browser, os)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE last_seen_at = NOW()`,
+      [userId, deviceType, browser, os]
+    );
 
-          case 'session_end':
-            endSession.run(sessionId);
-            break;
+    for (const evt of events) {
+      switch (evt.type) {
+        case 'session_start':
+          await conn.query(
+            `INSERT IGNORE INTO sessions (session_id, user_id, bot_id, page_url, referrer, device_type, browser, os)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [sessionId, userId, botId || '', pageUrl || '', referrer || '', deviceType, browser, os]
+          );
+          break;
 
-          case 'message':
-            insertMessage.run(sessionId, userId, evt.role, evt.content || '', evt.responseTimeMs || null);
-            updateSessionMsgCount.run(sessionId);
-            break;
+        case 'session_end':
+          await conn.query(
+            `UPDATE sessions SET ended_at = NOW() WHERE session_id = ?`,
+            [sessionId]
+          );
+          break;
 
-          case 'error':
-            insertError.run(userId, sessionId, evt.errorType || 'unknown', evt.errorMessage || '');
-            break;
+        case 'message':
+          await conn.query(
+            `INSERT INTO messages (session_id, user_id, role, content, response_time_ms)
+             VALUES (?, ?, ?, ?, ?)`,
+            [sessionId, userId, evt.role, evt.content || '', evt.responseTimeMs || null]
+          );
+          await conn.query(
+            `UPDATE sessions SET message_count = message_count + 1 WHERE session_id = ?`,
+            [sessionId]
+          );
+          break;
 
-          default:
-            // 通用事件：chat_open, chat_close, quick_action_click 等
-            insertEvent.run(userId, sessionId || '', evt.type, JSON.stringify(evt.data || {}), pageUrl || '');
-            break;
-        }
+        case 'error':
+          await conn.query(
+            `INSERT INTO errors (user_id, session_id, error_type, error_message)
+             VALUES (?, ?, ?, ?)`,
+            [userId, sessionId, evt.errorType || 'unknown', evt.errorMessage || '']
+          );
+          break;
+
+        default:
+          await conn.query(
+            `INSERT INTO events (user_id, session_id, event_type, event_data, page_url)
+             VALUES (?, ?, ?, ?, ?)`,
+            [userId, sessionId || '', evt.type, JSON.stringify(evt.data || {}), pageUrl || '']
+          );
+          break;
       }
-    });
+    }
 
-    runAll();
+    await conn.commit();
     res.json({ code: 0, message: 'ok' });
   } catch (err) {
+    await conn.rollback();
     console.error('[Track] collect error:', err);
     res.status(500).json({ code: -1, message: '服务器错误' });
+  } finally {
+    conn.release();
+  }
+});
+
+// ========== 转人工接口 ==========
+
+router.post('/handoff', async (req, res) => {
+  const { sessionId, userId } = req.body;
+
+  if (!sessionId || !userId) {
+    return res.status(400).json({ code: -1, message: '参数缺失: sessionId 和 userId 为必填项' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    // 查询 session 是否存在
+    const [rows] = await conn.query(
+      `SELECT session_id, user_id FROM sessions WHERE session_id = ?`,
+      [sessionId]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ code: -1, message: '会话不存在' });
+    }
+
+    // 更新会话状态为 human
+    await conn.query(
+      `UPDATE sessions SET status = 'human', handoff_at = NOW() WHERE session_id = ?`,
+      [sessionId]
+    );
+
+    // 记录 handoff_to_human 事件
+    await conn.query(
+      `INSERT INTO events (user_id, session_id, event_type, event_data) VALUES (?, ?, ?, ?)`,
+      [userId, sessionId, 'handoff_to_human', JSON.stringify({})]
+    );
+
+    res.json({ code: 0, message: 'ok' });
+  } catch (err) {
+    console.error('[Track] handoff error:', err);
+    res.status(500).json({ code: -1, message: '服务器错误' });
+  } finally {
+    conn.release();
   }
 });
 
