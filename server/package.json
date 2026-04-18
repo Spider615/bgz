@@ -1,0 +1,15 @@
+{
+  "name": "chat-admin-server",
+  "version": "1.0.0",
+  "description": "AI 聊天悬浮球管理系统后端",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}

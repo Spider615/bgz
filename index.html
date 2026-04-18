@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 聊天悬浮球 - 演示页面</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f7fa;
+      color: #333;
+    }
+    .demo-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 60px 20px;
+      text-align: center;
+    }
+    .demo-header h1 { font-size: 2.5rem; margin-bottom: 12px; }
+    .demo-header p { font-size: 1.1rem; opacity: 0.9; max-width: 600px; margin: 0 auto; }
+    .demo-content {
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+    .demo-card {
+      background: white;
+      border-radius: 12px;
+      padding: 32px;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    }
+    .demo-card h2 { margin-bottom: 16px; color: #444; }
+    .demo-card p { line-height: 1.8; color: #666; margin-bottom: 12px; }
+    code {
+      background: #f0f0f0;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.9em;
+      color: #e74c3c;
+    }
+    pre {
+      background: #1e1e2e;
+      color: #cdd6f4;
+      padding: 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin-top: 12px;
+      font-size: 0.9em;
+      line-height: 1.6;
+    }
+    .arrow-hint {
+      position: fixed;
+      bottom: 100px;
+      right: 100px;
+      background: #333;
+      color: white;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      animation: bounce 2s ease infinite;
+      pointer-events: none;
+      z-index: 9998;
+    }
+    .arrow-hint::after {
+      content: '→';
+      margin-left: 6px;
+      display: inline-block;
+      animation: arrow-move 1s ease infinite;
+    }
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); opacity: 1; }
+      50% { transform: translateY(-8px); opacity: 0.8; }
+    }
+    @keyframes arrow-move {
+      0%, 100% { transform: translateX(0); }
+      50% { transform: translateX(5px); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="demo-header">
+    <h1>🤖 AI 聊天悬浮球</h1>
+    <p>一行代码即可嵌入到任何网站或应用中，为用户提供智能 AI 对话体验</p>
+  </div>
+
+  <div class="demo-content">
+    <div class="demo-card">
+      <h2>✨ 功能特性</h2>
+      <p>🔵 可拖拽的悬浮球，不遮挡页面内容</p>
+      <p>💬 流畅的聊天窗口，支持 Markdown 渲染</p>
+      <p>🎨 精美的 UI 设计，自适应明暗主题</p>
+      <p>📱 完美适配移动端和桌面端</p>
+      <p>⚡ 零依赖，体积小巧，加载迅速</p>
+      <p>🔧 高度可配置，支持自定义样式和行为</p>
+    </div>
+
+    <div class="demo-card">
+      <h2>🚀 快速接入</h2>
+      <p>只需在页面底部添加一行脚本标签，即可自动连接 AI 对话：</p>
+      <pre>&lt;script src="chat-widget.js"&gt;&lt;/script&gt;</pre>
+      <p style="margin-top: 16px;">或者使用自定义配置：</p>
+      <pre>&lt;script src="chat-widget.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  AIChatWidget.init({
+    primaryColor: '#667eea',
+    title: '智能助手',
+    placeholder: '请输入您的问题...',
+    welcomeMessage: '你好！我是 AI 助手，有什么可以帮你的？',
+    position: 'right',
+    botId: 'your-bot-id',
+    accessKeyId: 'your-access-key-id',
+    accessKeySecret: 'your-access-key-secret'
+  });
+&lt;/script&gt;</pre>
+    </div>
+
+    <div class="demo-card">
+      <h2>📋 配置项说明</h2>
+      <p><code>primaryColor</code> - 主题色，默认 <code>#667eea</code></p>
+      <p><code>title</code> - 聊天窗口标题，默认 "AI 助手"</p>
+      <p><code>placeholder</code> - 输入框占位文字</p>
+      <p><code>welcomeMessage</code> - 欢迎消息</p>
+      <p><code>position</code> - 悬浮球位置，<code>left</code> 或 <code>right</code></p>
+      <p><code>botId</code> - 机器人 ID（从管理后台获取）</p>
+      <p><code>accessKeyId</code> - API 鉴权密钥 ID</p>
+      <p><code>accessKeySecret</code> - API 鉴权密钥</p>
+      <p><code>botAvatar</code> - 机器人头像 URL</p>
+    </div>
+
+    <div class="demo-card">
+      <h2>⚡ 核心能力</h2>
+      <p>🔄 <strong>流式输出</strong> - AI 回复实时逐字显示，体验流畅</p>
+      <p>📜 <strong>对话历史</strong> - 自动携带上下文，AI 理解更准确</p>
+      <p>🔐 <strong>自动鉴权</strong> - Token 自动获取和刷新，无需手动管理</p>
+      <p>🔁 <strong>失败重试</strong> - Token 过期自动刷新并重试请求</p>
+    </div>
+
+    <div class="demo-card">
+      <h2>💡 试试看</h2>
+      <p>点击右下角的悬浮球，开始与 AI 对话吧！已接入真实 AI 接口，支持流式输出。</p>
+    </div>
+  </div>
+
+  <div class="arrow-hint">点击悬浮球开始聊天</div>
+
+  <!-- 一行代码嵌入 -->
+  <script src="chat-widget.js"></script>
+
+  <script>
+    // 3秒后隐藏提示
+    setTimeout(() => {
+      document.querySelector('.arrow-hint').style.display = 'none';
+    }, 5000);
+  </script>
+</body>
+</html>
