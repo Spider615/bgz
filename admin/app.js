@@ -392,6 +392,7 @@
           messages.forEach(function (m) {
             var roleClass = m.role === 'user' ? 'user' : (m.role === 'agent' ? 'agent' : (m.role === 'system' ? 'system' : 'bot'));
             var roleLabel = m.role === 'user' ? '用户' : (m.role === 'agent' ? '客服' : (m.role === 'system' ? '系统' : 'AI'));
+            var contentHtml = (m.role === 'bot' || m.role === 'assistant') ? renderMarkdown(m.content) : esc(m.content);
             if (m.role === 'system') {
               html += '<div class="chat-record system">' +
                 '<div>' +
@@ -403,7 +404,7 @@
               html += '<div class="chat-record ' + roleClass + '">' +
                 '<div class="role-tag">' + roleLabel + '</div>' +
                 '<div>' +
-                  '<div class="record-bubble">' + esc(m.content) + '</div>' +
+                  '<div class="record-bubble md-content">' + contentHtml + '</div>' +
                   '<div class="record-time">' + fmtDate(m.created_at) +
                     (m.response_time_ms ? ' · 响应 ' + m.response_time_ms + 'ms' : '') +
                   '</div>' +
@@ -598,6 +599,7 @@
   function renderHsChatMessage(m) {
     var roleClass = m.role === 'user' ? 'user' : (m.role === 'agent' ? 'agent' : (m.role === 'system' ? 'system' : 'bot'));
     var roleLabel = m.role === 'user' ? '用户' : (m.role === 'agent' ? '客服' : (m.role === 'system' ? '系统' : 'AI'));
+    var contentHtml = (m.role === 'bot' || m.role === 'assistant') ? renderMarkdown(m.content) : esc(m.content);
     if (m.role === 'system') {
       return '<div class="chat-record system">' +
         '<div>' +
@@ -609,7 +611,7 @@
     return '<div class="chat-record ' + roleClass + '">' +
       '<div class="role-tag">' + roleLabel + '</div>' +
       '<div>' +
-        '<div class="record-bubble">' + esc(m.content) + '</div>' +
+        '<div class="record-bubble md-content">' + contentHtml + '</div>' +
         '<div class="record-time">' + fmtDate(m.created_at) + '</div>' +
       '</div>' +
     '</div>';
@@ -1097,6 +1099,170 @@
         setTimeout(function () { document.getElementById('copy-agent-id-btn').textContent = '复制'; }, 1500);
       });
     });
+  }
+
+  // ========== Markdown 渲染 ==========
+  function renderMarkdown(src) {
+    if (!src) return '';
+    var codeBlocks = [];
+    src = src.replace(/```(\w*)\n([\s\S]*?)```/g, function (_, lang, code) {
+      var idx = codeBlocks.length;
+      codeBlocks.push('<pre class="md-code-block"><div class="md-code-header">' +
+        (lang ? '<span class="md-code-lang">' + esc(lang) + '</span>' : '') +
+        '<button class="md-copy-btn" onclick="(function(b){var c=b.parentElement.nextElementSibling;var t=c.textContent;navigator.clipboard.writeText(t).then(function(){b.textContent=\'已复制\';setTimeout(function(){b.textContent=\'复制\'},1500)});})(this)">复制</button>' +
+        '</div><code>' + esc(code) + '</code></pre>');
+      return '\x00CODEBLOCK' + idx + '\x00';
+    });
+
+    var inlineCodes = [];
+    src = src.replace(/`([^`\n]+)`/g, function (_, code) {
+      var idx = inlineCodes.length;
+      inlineCodes.push('<code class="md-inline-code">' + esc(code) + '</code>');
+      return '\x00INLINE' + idx + '\x00';
+    });
+
+    var lines = src.split('\n');
+    var html = '';
+    var inList = false;
+    var inOrderedList = false;
+    var inBlockquote = false;
+    var i = 0;
+
+    while (i < lines.length) {
+      var line = lines[i];
+
+      if (/^(\*{3,}|-{3,}|_{3,})\s*$/.test(line.trim())) {
+        if (inList) { html += '</ul>'; inList = false; }
+        if (inOrderedList) { html += '</ol>'; inOrderedList = false; }
+        if (inBlockquote) { html += '</blockquote>'; inBlockquote = false; }
+        html += '<hr class="md-hr">';
+        i++; continue;
+      }
+
+      var headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
+      if (headerMatch) {
+        if (inList) { html += '</ul>'; inList = false; }
+        if (inOrderedList) { html += '</ol>'; inOrderedList = false; }
+        if (inBlockquote) { html += '</blockquote>'; inBlockquote = false; }
+        var level = headerMatch[1].length;
+        html += '<h' + level + ' class="md-h md-h' + level + '">' + inlineFmt(headerMatch[2]) + '</h' + level + '>';
+        i++; continue;
+      }
+
+      var bqMatch = line.match(/^>\s?(.*)$/);
+      if (bqMatch) {
+        if (inList) { html += '</ul>'; inList = false; }
+        if (inOrderedList) { html += '</ol>'; inOrderedList = false; }
+        if (!inBlockquote) { html += '<blockquote class="md-blockquote">'; inBlockquote = true; }
+        html += inlineFmt(bqMatch[1]) + '<br>';
+        i++; continue;
+      } else if (inBlockquote) {
+        html += '</blockquote>'; inBlockquote = false;
+      }
+
+      var ulMatch = line.match(/^[\s]*[-*•]\s+(.+)$/);
+      if (ulMatch) {
+        if (inOrderedList) { html += '</ol>'; inOrderedList = false; }
+        if (!inList) { html += '<ul class="md-ul">'; inList = true; }
+        html += '<li>' + inlineFmt(ulMatch[1]) + '</li>';
+        i++; continue;
+      } else if (inList) {
+        html += '</ul>'; inList = false;
+      }
+
+      var olMatch = line.match(/^[\s]*(\d+)[.)]\s+(.+)$/);
+      if (olMatch) {
+        if (inList) { html += '</ul>'; inList = false; }
+        if (!inOrderedList) { html += '<ol class="md-ol">'; inOrderedList = true; }
+        html += '<li>' + inlineFmt(olMatch[2]) + '</li>';
+        i++; continue;
+      } else if (inOrderedList) {
+        html += '</ol>'; inOrderedList = false;
+      }
+
+      if (line.indexOf('|') !== -1 && i + 1 < lines.length && /^\|?[\s-:|]+\|?$/.test(lines[i + 1].trim())) {
+        var tableResult = parseMdTable(lines, i);
+        if (tableResult.html) {
+          html += tableResult.html;
+          i = tableResult.endIndex;
+          continue;
+        }
+      }
+
+      if (line.trim() === '') {
+        html += '<br>';
+        i++; continue;
+      }
+
+      html += '<p class="md-p">' + inlineFmt(line) + '</p>';
+      i++;
+    }
+
+    if (inList) html += '</ul>';
+    if (inOrderedList) html += '</ol>';
+    if (inBlockquote) html += '</blockquote>';
+
+    for (var c = 0; c < codeBlocks.length; c++) {
+      html = html.replace('\x00CODEBLOCK' + c + '\x00', codeBlocks[c]);
+    }
+    for (var d = 0; d < inlineCodes.length; d++) {
+      html = html.replace('\x00INLINE' + d + '\x00', inlineCodes[d]);
+    }
+
+    return html;
+  }
+
+  function inlineFmt(text) {
+    var s = esc(text);
+    s = s.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    s = s.replace(/___(.+?)___/g, '<strong><em>$1</em></strong>');
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/__(.+?)__/g, '<strong>$1</strong>');
+    s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    s = s.replace(/~~(.+?)~~/g, '<del>$1</del>');
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="md-link">$1</a>');
+    s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="md-img">');
+    return s;
+  }
+
+  function parseMdTable(lines, startIdx) {
+    var headerLine = lines[startIdx].trim();
+    var sepLine = lines[startIdx + 1].trim();
+    if (!/^\|?[\s-:|]+\|?$/.test(sepLine)) return { html: '', endIndex: startIdx + 1 };
+
+    var headers = splitMdRow(headerLine);
+    var aligns = sepLine.split('|').filter(function (c) { return c.trim(); }).map(function (c) {
+      c = c.trim();
+      if (c[0] === ':' && c[c.length - 1] === ':') return 'center';
+      if (c[c.length - 1] === ':') return 'right';
+      return 'left';
+    });
+
+    var html = '<div class="md-table-wrap"><table class="md-table"><thead><tr>';
+    for (var h = 0; h < headers.length; h++) {
+      html += '<th style="text-align:' + (aligns[h] || 'left') + '">' + inlineFmt(headers[h]) + '</th>';
+    }
+    html += '</tr></thead><tbody>';
+
+    var idx = startIdx + 2;
+    while (idx < lines.length && lines[idx].trim() && lines[idx].indexOf('|') !== -1) {
+      var cells = splitMdRow(lines[idx].trim());
+      html += '<tr>';
+      for (var c = 0; c < headers.length; c++) {
+        html += '<td style="text-align:' + (aligns[c] || 'left') + '">' + inlineFmt(cells[c] || '') + '</td>';
+      }
+      html += '</tr>';
+      idx++;
+    }
+
+    html += '</tbody></table></div>';
+    return { html: html, endIndex: idx };
+  }
+
+  function splitMdRow(row) {
+    if (row[0] === '|') row = row.substring(1);
+    if (row[row.length - 1] === '|') row = row.substring(0, row.length - 1);
+    return row.split('|').map(function (c) { return c.trim(); });
   }
 
   // ========== 工具函数 ==========

@@ -57,7 +57,10 @@
     }
     .feedback-admin-time { color: #888; font-size: 12px; margin-top: 10px; }
     .chat-record { display: flex; gap: 10px; margin-bottom: 12px; }
-    .chat-record.user { flex-direction: row-reverse; }
+    .chat-record.user { flex-direction: row; justify-content: flex-start; }
+    .chat-record.bot { flex-direction: row-reverse; justify-content: flex-start; }
+    .chat-record.agent { flex-direction: row-reverse; justify-content: flex-start; }
+    .chat-record > div:not(.role-tag) { max-width: 70%; }
     .chat-record .role-tag {
       width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
       font-size: 12px; font-weight: 600; flex-shrink: 0;
@@ -65,11 +68,13 @@
     .chat-record.bot .role-tag { background: #e8f0fe; color: #4285f4; }
     .chat-record.user .role-tag { background: #fce8e6; color: #ea4335; }
     .chat-record .record-bubble {
-      max-width: 70%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6;
+      padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6;
     }
-    .chat-record.bot .record-bubble { background: #f0f2f5; }
-    .chat-record.user .record-bubble { background: #e8f0fe; }
+    .chat-record.bot .record-bubble { background: #e8f0fe; }
+    .chat-record.user .record-bubble { background: #f0f2f5; }
     .chat-record .record-time { font-size: 11px; color: #999; margin-top: 4px; }
+    .chat-record.bot .record-time { text-align: right; }
+    .chat-record.agent .record-time { text-align: right; }
 
     /* 分页 */
     .pagination { display: flex; justify-content: center; gap: 8px; padding: 16px; }
@@ -133,7 +138,7 @@
     .hs-chat-input button:hover { background: #2d9249; }
     .hs-chat-input button:disabled { background: #ccc; cursor: not-allowed; }
 
-    /* agent 消息样式（绿色主题） */
+    /* agent 消息样式（绿色主题，右侧） */
     .chat-record.agent .role-tag { background: #e6f4ea; color: #34a853; }
     .chat-record.agent .record-bubble { background: #e6f4ea; }
 
@@ -237,6 +242,36 @@
     .color-input-wrap { display: flex; gap: 8px; align-items: center; }
     .color-input-wrap input[type="color"] { width: 40px; height: 36px; border: 1px solid #ddd; border-radius: 6px; padding: 2px; cursor: pointer; }
     .color-input-wrap input[type="text"] { flex: 1; }
+
+    /* Markdown 渲染样式 */
+    .md-content .md-h { margin: 8px 0 4px; font-weight: 600; line-height: 1.4; }
+    .md-content .md-h1 { font-size: 1.3em; }
+    .md-content .md-h2 { font-size: 1.15em; }
+    .md-content .md-h3 { font-size: 1.05em; }
+    .md-content .md-h4, .md-content .md-h5, .md-content .md-h6 { font-size: 1em; }
+    .md-content .md-p { margin: 4px 0; }
+    .md-content .md-ul, .md-content .md-ol { margin: 4px 0; padding-left: 20px; }
+    .md-content .md-ul li, .md-content .md-ol li { margin: 2px 0; }
+    .md-content .md-blockquote { border-left: 3px solid #ccc; margin: 6px 0; padding: 4px 10px; color: #666; background: rgba(0,0,0,0.03); border-radius: 0 4px 4px 0; }
+    .md-content .md-hr { border: none; border-top: 1px solid #ddd; margin: 8px 0; }
+    .md-content .md-link { color: #4285f4; text-decoration: underline; }
+    .md-content .md-img { max-width: 100%; border-radius: 6px; margin: 4px 0; }
+    .md-content .md-inline-code { background: #e8e8e8; padding: 1px 5px; border-radius: 3px; font-family: Menlo, Monaco, Consolas, monospace; font-size: 0.88em; }
+    .md-content .md-code-block { background: #1e1e2e; color: #cdd6f4; border-radius: 8px; margin: 6px 0; overflow: hidden; font-size: 0.85em; }
+    .md-content .md-code-block .md-code-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .md-content .md-code-block .md-code-lang { font-size: 11px; color: #89b4fa; }
+    .md-content .md-code-block .md-copy-btn { background: rgba(255,255,255,0.1); border: none; color: #bac2de; font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+    .md-content .md-code-block .md-copy-btn:hover { background: rgba(255,255,255,0.2); }
+    .md-content .md-code-block code { display: block; padding: 10px 12px; overflow-x: auto; white-space: pre; font-family: Menlo, Monaco, Consolas, monospace; line-height: 1.5; }
+    .md-content .md-table-wrap { overflow-x: auto; margin: 6px 0; }
+    .md-content .md-table { border-collapse: collapse; width: 100%; font-size: 0.9em; }
+    .md-content .md-table th, .md-content .md-table td { border: 1px solid #ddd; padding: 5px 8px; }
+    .md-content .md-table th { background: #f0f0f0; font-weight: 600; }
+    .md-content .md-table tr:nth-child(even) { background: rgba(0,0,0,0.02); }
+    .md-content del { text-decoration: line-through; opacity: 0.7; }
+    .md-content strong { font-weight: 600; }
+    .md-content em { font-style: italic; }
+    .record-bubble.md-content { word-break: break-word; }
   </style>
 </head>
 <body>

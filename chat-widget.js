@@ -50,6 +50,7 @@
   var POLLING_FAIL_THRESHOLD = 3;
   var widgetBuilt = false;
   var pendingSessionReset = false;
+  var sessionStarted = false;
 
   Object.keys(DEFAULT_CONFIG).forEach(function (k) {
     config[k] = DEFAULT_CONFIG[k];
@@ -736,11 +737,20 @@
   }
 
   /* ========== Send Message & Streaming Response ========== */
+  function ensureSessionStarted() {
+    if (!sessionStarted) {
+      sessionStarted = true;
+      trackEvent({ type: 'session_start' });
+    }
+  }
+
   function sendMessage() {
     if (isSending) return;
     var input = document.getElementById('ai-chat-input');
     var text = input.value.trim();
     if (!text) return;
+
+    ensureSessionStarted();
 
     isSending = true;
     var sendBtn = document.getElementById('ai-chat-send');
@@ -1492,7 +1502,7 @@
       appendMessageDOM('bot', config.welcomeMessage, true);
     }
     addQuickActions();
-    trackEvent({ type: 'session_start' });
+    sessionStarted = false;
     trackEvent({ type: 'session_reset' });
   }
 
@@ -1566,8 +1576,8 @@
     sessionId = generateSessionId();
     accessToken = null;
     tokenExpiresAt = 0;
+    sessionStarted = false;
     buildWidget();
-    trackEvent({ type: 'session_start' });
   }
 
   /* ========== Public API ========== */
@@ -1630,6 +1640,7 @@
     clearHistory: function () {
       chatHistory = [];
       sessionId = generateSessionId();
+      sessionStarted = false;
       var container = document.getElementById('ai-chat-messages');
       if (container) container.innerHTML = '';
       if (config.welcomeMessage) {
@@ -1668,7 +1679,6 @@
       applyAgentConfig(agentConfig);
       injectStyles();
       buildWidget();
-      trackEvent({ type: 'session_start' });
       getAccessToken().catch(function (err) {
         console.warn('[AI Chat Widget] Pre-auth failed, will retry on first message:', err.message);
       });
