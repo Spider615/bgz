@@ -145,6 +145,11 @@ router.post('/feedback', async (req, res) => {
 
   const conn = await pool.getConnection();
   try {
+    // 确保 session 存在（用户未发消息就结束会话时，session 可能还未入库）
+    await conn.query(
+      `INSERT IGNORE INTO sessions (session_id, user_id) VALUES (?, ?)`,
+      [sessionId, userId]
+    );
     await conn.query(
       `INSERT INTO feedbacks (session_id, user_id, rating, comment)
        VALUES (?, ?, ?, ?)

@@ -1319,13 +1319,16 @@
   }
 
   function tryEndSession() {
-    // 没有进行过用户对话 或 本次会话已评价 → 直接重置，不弹评价卡
+    // 本次会话已评价 → 直接重置，不弹评价卡
     var alreadyRated = false;
     try { alreadyRated = !!sessionStorage.getItem(feedbackStorageKey()); } catch (e) {}
-    if (alreadyRated || chatHistory.length === 0) {
+    if (alreadyRated) {
       resetSession();
       return;
     }
+    // 确保 session 已上报到后端
+    ensureSessionStarted();
+    flushTrackQueue();
     if (document.getElementById('feedback-card')) return;
     trackEvent({ type: 'end_session_click' });
     setEndSessionBtnDisabled(true);

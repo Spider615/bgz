@@ -92,7 +92,7 @@
         html += statCard('总消息数', stats.totalMessages, '今日 +' + stats.todayMessages);
         html += statCard('平均消息/会话', stats.avgMessagesPerSession, '');
         html += statCard('错误总数', stats.totalErrors, '', stats.totalErrors > 0 ? 'red' : '');
-        html += statCard('平均响应时长', Math.round(stats.avgResponseTimeMs) + ' ms', '今日 ' + Math.round(stats.todayAvgResponseTimeMs) + ' ms', stats.avgResponseTimeMs > 5000 ? 'red' : '');
+        html += statCard('平均响应时长', (stats.avgResponseTimeMs / 1000).toFixed(2) + ' s', '今日 ' + (stats.todayAvgResponseTimeMs / 1000).toFixed(2) + ' s', stats.avgResponseTimeMs > 5000 ? 'red' : '');
         html += statCard('7 日活跃用户', stats.activeUsers7d, '');
         html += statCard('30 日活跃用户', stats.activeUsers30d, '');
         html += statCard('转人工会话', stats.totalHumanSessions, '今日 +' + stats.todayHumanSessions);
@@ -137,7 +137,7 @@
           var sessionsData = trend.map(function (r) { return r.sessions; });
           var messagesData = trend.map(function (r) { return r.messages; });
           var humanData = trend.map(function (r) { return r.humanSessions || 0; });
-          var respTimeData = trend.map(function (r) { return Math.round(r.avgResponseTime); });
+          var respTimeData = trend.map(function (r) { return (r.avgResponseTime / 1000).toFixed(2); });
 
           new Chart(ctx, {
             type: 'bar',
@@ -198,7 +198,7 @@
                 },
                 {
                   type: 'bar',
-                  label: '平均响应时长 (ms)',
+                  label: '平均响应时长 (s)',
                   data: respTimeData,
                   backgroundColor: 'rgba(137,180,250,0.35)',
                   borderColor: '#89b4fa',
@@ -226,7 +226,7 @@
                     label: function (ctx) {
                       var label = ctx.dataset.label || '';
                       var val = ctx.parsed.y;
-                      if (label.indexOf('响应') !== -1) return label + ': ' + val + ' ms';
+                      if (label.indexOf('响应') !== -1) return label + ': ' + val + ' s';
                       return label + ': ' + val;
                     }
                   }
@@ -248,7 +248,7 @@
                   type: 'linear',
                   position: 'right',
                   beginAtZero: true,
-                  title: { display: true, text: '响应时长 (ms)', font: { size: 12 } },
+                  title: { display: true, text: '响应时长 (s)', font: { size: 12 } },
                   grid: { drawOnChartArea: false },
                   ticks: { precision: 0 }
                 }
@@ -311,7 +311,7 @@
             '<td>' + (s.actual_msg_count || s.message_count) + '</td>' +
             '<td>' + feedbackCell + '</td>' +
             '<td>' + (s.status === 'human' ? '<span class="tag tag-red">人工</span>' : '<span class="tag tag-blue">AI</span>') + '</td>' +
-            '<td>' + (s.avg_response_time_ms > 0 ? Math.round(s.avg_response_time_ms) + ' ms' : '-') + '</td>' +
+            '<td>' + (s.avg_response_time_ms > 0 ? (s.avg_response_time_ms / 1000).toFixed(2) + ' s' : '-') + '</td>' +
             '<td title="' + esc(s.page_url || '') + '">' + esc(shortUrl) + '</td>' +
             '<td><span class="tag tag-gray">' + esc(s.device_type || '-') + '</span></td>' +
             '<td>' + fmtDate(s.started_at) + '</td>' +
@@ -406,7 +406,7 @@
                 '<div>' +
                   '<div class="record-bubble md-content">' + contentHtml + '</div>' +
                   '<div class="record-time">' + fmtDate(m.created_at) +
-                    (m.response_time_ms ? ' · 响应 ' + m.response_time_ms + 'ms' : '') +
+                    (m.response_time_ms ? ' · 响应 ' + (m.response_time_ms / 1000).toFixed(2) + 's' : '') +
                   '</div>' +
                 '</div>' +
               '</div>';
@@ -820,7 +820,12 @@
     html += '</div>';
 
     if (agent.welcome_message) {
-      html += '<div class="agent-welcome">💬 ' + esc(agent.welcome_message) + '</div>';
+      html += '<div class="agent-welcome">';
+      html += '<div class="welcome-text">💬 ' + esc(agent.welcome_message) + '</div>';
+      if (agent.welcome_message.length > 80) {
+        html += '<span class="welcome-tooltip">' + esc(agent.welcome_message) + '</span>';
+      }
+      html += '</div>';
     }
 
     if (presets.length > 0) {

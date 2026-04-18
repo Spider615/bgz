@@ -169,7 +169,10 @@
     .agent-card .agent-name { font-size: 16px; font-weight: 600; }
     .agent-card .agent-subtitle { font-size: 12px; color: #888; margin-top: 2px; }
     .agent-card .agent-badges { display: flex; gap: 6px; margin-bottom: 10px; }
-    .agent-card .agent-welcome { font-size: 13px; color: #666; margin-bottom: 10px; background: #f8f9fa; padding: 8px 12px; border-radius: 8px; line-height: 1.5; }
+    .agent-card .agent-welcome { font-size: 13px; color: #666; margin-bottom: 10px; background: #f8f9fa; padding: 8px 12px; border-radius: 8px; line-height: 1.5; position: relative; cursor: default; }
+    .agent-card .agent-welcome .welcome-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .agent-card .agent-welcome .welcome-tooltip { display: none; position: absolute; left: 0; top: 100%; margin-top: 6px; z-index: 100; background: #333; color: #fff; font-size: 13px; line-height: 1.6; padding: 10px 14px; border-radius: 8px; max-width: 420px; width: max-content; box-shadow: 0 4px 16px rgba(0,0,0,0.15); word-break: break-word; white-space: pre-wrap; }
+    .agent-card .agent-welcome:hover .welcome-tooltip { display: block; }
     .agent-card .agent-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
     .agent-card .agent-presets .preset-tag { background: #e8f0fe; color: #4285f4; padding: 3px 10px; border-radius: 12px; font-size: 12px; }
     .agent-card .agent-actions { display: flex; gap: 8px; }
@@ -280,10 +283,10 @@
   <div class="logo">🤖 <span>管理后台</span></div>
   <nav>
     <a class="active" data-page="overview"><span class="icon">📊</span><span>数据概览</span></a>
-    <a data-page="sessions"><span class="icon">💬</span><span>会话记录</span></a>
-    <a data-page="users"><span class="icon">👥</span><span>用户管理</span></a>
     <a data-page="human-service"><span class="icon">🎧</span><span>人工客服</span></a>
     <a data-page="agents"><span class="icon">🤖</span><span>智能体配置</span></a>
+    <a data-page="sessions"><span class="icon">💬</span><span>会话记录</span></a>
+    <a data-page="users"><span class="icon">👥</span><span>用户管理</span></a>
     <a data-page="errors"><span class="icon">⚠️</span><span>错误日志</span></a>
   </nav>
 </div>
