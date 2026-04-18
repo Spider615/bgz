@@ -100,6 +100,20 @@ async function initDB() {
     }
 
     await conn.query(`
+      CREATE TABLE IF NOT EXISTS feedbacks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        session_id VARCHAR(255) NOT NULL,
+        user_id VARCHAR(255) NOT NULL,
+        rating TINYINT NOT NULL,
+        comment TEXT,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_feedback_session (session_id),
+        INDEX idx_feedbacks_rating (rating),
+        INDEX idx_feedbacks_created_at (created_at)
+      )
+    `);
+
+    await conn.query(`
       CREATE TABLE IF NOT EXISTS agents (
         id INT AUTO_INCREMENT PRIMARY KEY,
         agent_id VARCHAR(255) UNIQUE NOT NULL,

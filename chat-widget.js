@@ -49,6 +49,7 @@
   var POLLING_SLOW_INTERVAL = 10000;
   var POLLING_FAIL_THRESHOLD = 3;
   var widgetBuilt = false;
+  var pendingSessionReset = false;
 
   Object.keys(DEFAULT_CONFIG).forEach(function (k) {
     config[k] = DEFAULT_CONFIG[k];
@@ -493,6 +494,23 @@
     '#ai-chat-window .chat-action-bar .action-handoff-btn:hover{border-color:#667eea;color:#667eea;background:#f8f9ff;}' +
     '#ai-chat-window .chat-action-bar .action-end-btn:hover{border-color:#ea4335;color:#ea4335;background:#fff5f5;}' +
     '#ai-chat-window .chat-action-bar .action-handoff-btn:disabled{opacity:0.4;cursor:not-allowed;border-color:#e0e0e0;color:#999;background:#f5f5f5;}' +
+    '#ai-chat-window .chat-action-bar .action-end-btn:disabled{opacity:0.4;cursor:not-allowed;border-color:#e0e0e0;color:#999;background:#f5f5f5;}' +
+    /* Feedback card (satisfaction rating) */
+    '.feedback-bubble{display:flex;flex-direction:column;gap:10px;min-width:240px;}' +
+    '.feedback-title{font-size:13px;color:#333;font-weight:600;}' +
+    '.feedback-stars{display:flex;gap:6px;}' +
+    '.feedback-star{background:transparent;border:none;font-size:26px;line-height:1;color:#ddd;cursor:pointer;padding:0;transition:color .15s,transform .1s;}' +
+    '.feedback-star:hover{transform:scale(1.1);}' +
+    '.feedback-star.active{color:#fbbc04;}' +
+    '.feedback-comment{width:100%;min-height:56px;max-height:100px;resize:vertical;border:1px solid #e0e0e0;border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;box-sizing:border-box;background:#fff;}' +
+    '.feedback-comment:focus{outline:none;border-color:' + pc + ';}' +
+    '.feedback-actions{display:flex;justify-content:flex-end;gap:8px;}' +
+    '.feedback-skip,.feedback-submit{border:none;border-radius:14px;padding:6px 14px;font-size:12px;cursor:pointer;transition:opacity .2s,transform .1s;}' +
+    '.feedback-skip{background:#f0f0f0;color:#666;}' +
+    '.feedback-skip:hover{background:#e4e4e4;}' +
+    '.feedback-submit{background:linear-gradient(135deg,' + pc + ',#764ba2);color:#fff;}' +
+    '.feedback-submit:hover:not([disabled]){transform:scale(1.03);}' +
+    '.feedback-submit[disabled]{opacity:.5;cursor:not-allowed;}' +
     '@media(max-width:480px){#ai-chat-window{width:100vw;height:100vh;max-height:100vh;border-radius:0;bottom:0!important;left:0!important;right:0!important;}}';
   }
 
@@ -557,7 +575,7 @@
     var endSessionBtn = document.getElementById('ai-chat-end-bar');
     if (endSessionBtn) {
       endSessionBtn.addEventListener('click', function () {
-        resetSession();
+        tryEndSession();
       });
     }
 
@@ -659,6 +677,10 @@
   function toggleChat(bubble, win) {
     isOpen = !isOpen;
     if (isOpen) {
+      // 如果上次会话已结束（评价后），先重置到新会话
+      if (pendingSessionReset) {
+        resetSession(true); // skipEndEvent=true，因为 session_end 已在 endSessionOnly 中上报
+      }
       positionWindow(win);
       win.classList.add('visible');
       bubble.classList.add('open');
@@ -1281,14 +1303,175 @@
     });
   }
 
-  /* ========== Reset Session: 结束会话 ========== */
-  function resetSession() {
+  /* ========== End Session: 满意度评价 ========== */
+  function feedbackStorageKey() {
+    return 'ai_chat_feedback_' + sessionId;
+  }
+
+  function tryEndSession() {
+    // 没有进行过用户对话 或 本次会话已评价 → 直接重置，不弹评价卡
+    var alreadyRated = false;
+    try { alreadyRated = !!sessionStorage.getItem(feedbackStorageKey()); } catch (e) {}
+    if (alreadyRated || chatHistory.length === 0) {
+      resetSession();
+      return;
+    }
+    if (document.getElementById('feedback-card')) return;
+    trackEvent({ type: 'end_session_click' });
+    setEndSessionBtnDisabled(true);
+    appendFeedbackCard();
+  }
+
+  function setEndSessionBtnDisabled(disabled) {
+    var btn = document.getElementById('ai-chat-end-bar');
+    if (btn) btn.disabled = !!disabled;
+  }
+
+  function appendFeedbackCard() {
+    var container = document.getElementById('ai-chat-messages');
+    if (!container) return;
+    var qa = document.getElementById('quick-actions');
+    if (qa) qa.remove();
+
+    var div = document.createElement('div');
+    div.className = 'chat-msg bot feedback-msg';
+    div.id = 'feedback-card';
+    div.innerHTML =
+      '<div class="msg-avatar">' + ICON_BOT + '</div>' +
+      '<div class="msg-content">' +
+        '<div class="msg-bubble feedback-bubble">' +
+          '<div class="feedback-title">感谢您本次的使用，请为我们的服务打分</div>' +
+          '<div class="feedback-stars" id="feedback-stars">' +
+            '<button type="button" class="feedback-star" data-v="1" aria-label="1 星">★</button>' +
+            '<button type="button" class="feedback-star" data-v="2" aria-label="2 星">★</button>' +
+            '<button type="button" class="feedback-star" data-v="3" aria-label="3 星">★</button>' +
+            '<button type="button" class="feedback-star" data-v="4" aria-label="4 星">★</button>' +
+            '<button type="button" class="feedback-star" data-v="5" aria-label="5 星">★</button>' +
+          '</div>' +
+          '<textarea class="feedback-comment" id="feedback-comment" maxlength="500" placeholder="欢迎留下您的建议（选填）"></textarea>' +
+          '<div class="feedback-actions">' +
+            '<button type="button" class="feedback-skip" id="feedback-skip">跳过</button>' +
+            '<button type="button" class="feedback-submit" id="feedback-submit" disabled>提交</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    bindFeedbackHandlers();
+  }
+
+  function bindFeedbackHandlers() {
+    var rating = 0;
+    var stars = document.querySelectorAll('#feedback-stars .feedback-star');
+    var submitBtn = document.getElementById('feedback-submit');
+    var skipBtn = document.getElementById('feedback-skip');
+
+    stars.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        rating = Number(btn.getAttribute('data-v'));
+        stars.forEach(function (b, i) { b.classList.toggle('active', i < rating); });
+        submitBtn.disabled = false;
+      });
+      btn.addEventListener('mouseenter', function () {
+        var hv = Number(btn.getAttribute('data-v'));
+        stars.forEach(function (b, i) { b.classList.toggle('active', i < hv); });
+      });
+      btn.addEventListener('mouseleave', function () {
+        stars.forEach(function (b, i) { b.classList.toggle('active', i < rating); });
+      });
+    });
+
+    skipBtn.addEventListener('click', function () {
+      try { sessionStorage.setItem(feedbackStorageKey(), 'skipped'); } catch (e) {}
+      var card = document.getElementById('feedback-card');
+      if (card) card.remove();
+      trackEvent({ type: 'feedback_skip' });
+      endSessionOnly();
+    });
+
+    submitBtn.addEventListener('click', function () {
+      if (!rating) return;
+      var commentEl = document.getElementById('feedback-comment');
+      var comment = commentEl ? commentEl.value.trim() : '';
+      submitBtn.disabled = true;
+      submitBtn.textContent = '提交中...';
+      submitFeedback(rating, comment).then(function () {
+        try { sessionStorage.setItem(feedbackStorageKey(), String(rating)); } catch (e) {}
+        var card = document.getElementById('feedback-card');
+        if (card) card.remove();
+        appendSystemMessage('感谢您的评价！');
+        endSessionOnly();
+      }).catch(function (err) {
+        console.warn('[AI Chat Widget] 提交评价失败:', err);
+        submitBtn.disabled = false;
+        submitBtn.textContent = '提交';
+        appendSystemMessage('提交失败，请稍后重试');
+      });
+    });
+  }
+
+  function disableSessionInput(disabled) {
+    var ta = document.getElementById('ai-chat-input');
+    var sb = document.getElementById('ai-chat-send');
+    var eb = document.getElementById('ai-chat-end-bar');
+    var hb = document.getElementById('ai-chat-handoff-bar');
+    if (ta) {
+      ta.disabled = !!disabled;
+      if (disabled) ta.placeholder = '本次会话已结束';
+      else ta.placeholder = config.placeholder;
+    }
+    if (sb) sb.disabled = !!disabled;
+    if (eb) eb.disabled = !!disabled;
+    if (hb) hb.disabled = !!disabled;
+  }
+
+  function endSessionOnly() {
     stopPolling();
     trackEvent({ type: 'session_end' });
+    disableSessionInput(true);
+    pendingSessionReset = true;
+    // 延迟 800ms 让用户看到"感谢评价"后再自动折叠窗口
+    setTimeout(function () {
+      if (!isOpen) return;
+      var bubble = document.getElementById('ai-chat-bubble');
+      var win = document.getElementById('ai-chat-window');
+      if (bubble && win) toggleChat(bubble, win);
+    }, 800);
+  }
+
+  function submitFeedback(rating, comment) {
+    var base = (config.trackingEndpoint || '').replace(/\/collect\/?$/, '');
+    var url = base ? (base + '/feedback') : '/api/track/feedback';
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: sessionId,
+        userId: getOrCreateUserId(),
+        rating: rating,
+        comment: comment
+      })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (data) {
+      if (data && data.code !== 0) throw new Error(data.message || 'server error');
+      return data;
+    });
+  }
+
+  /* ========== Reset Session: 结束会话 ========== */
+  function resetSession(skipEndEvent) {
+    stopPolling();
+    if (!skipEndEvent) {
+      trackEvent({ type: 'session_end' });
+    }
     sessionId = generateSessionId();
     chatHistory = [];
     sessionMode = 'ai';
     lastMessageId = 0;
+    pendingSessionReset = false;
+    disableSessionInput(false);
     var handoffBtn = document.getElementById('ai-chat-handoff-bar');
     if (handoffBtn) handoffBtn.disabled = false;
 
@@ -1378,11 +1561,13 @@
     sessionMode = 'ai';
     lastMessageId = 0;
     pollingFailCount = 0;
+    pendingSessionReset = false;
     stopPolling();
     sessionId = generateSessionId();
     accessToken = null;
     tokenExpiresAt = 0;
     buildWidget();
+    trackEvent({ type: 'session_start' });
   }
 
   /* ========== Public API ========== */

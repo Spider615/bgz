@@ -129,4 +129,39 @@ router.post('/handoff', async (req, res) => {
   }
 });
 
+// ========== 会话满意度评价接口 ==========
+
+router.post('/feedback', async (req, res) => {
+  const { sessionId, userId, rating, comment } = req.body;
+
+  if (!sessionId || !userId) {
+    return res.status(400).json({ code: -1, message: '参数缺失: sessionId 和 userId 为必填项' });
+  }
+  const r = Number(rating);
+  if (!Number.isInteger(r) || r < 1 || r > 5) {
+    return res.status(400).json({ code: -1, message: 'rating 必须为 1-5 的整数' });
+  }
+  const c = typeof comment === 'string' ? comment.slice(0, 1000) : null;
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.query(
+      `INSERT INTO feedbacks (session_id, user_id, rating, comment)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE rating = VALUES(rating), comment = VALUES(comment), created_at = NOW()`,
+      [sessionId, userId, r, c]
+    );
+    await conn.query(
+      `UPDATE sessions SET ended_at = NOW() WHERE session_id = ? AND ended_at IS NULL`,
+      [sessionId]
+    );
+    res.json({ code: 0, message: 'ok' });
+  } catch (err) {
+    console.error('[Track] feedback error:', err);
+    res.status(500).json({ code: -1, message: '服务器错误' });
+  } finally {
+    conn.release();
+  }
+});
+
 module.exports = router;

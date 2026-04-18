@@ -288,15 +288,28 @@
 
         html += '<div class="card">';
         html += '<div class="card-header">共 ' + data.total + ' 条会话</div>';
-        html += '<table><thead><tr><th>会话 ID</th><th>用户</th><th>消息数</th><th>状态</th><th>平均响应时长</th><th>来源页面</th><th>设备</th><th>开始时间</th><th>结束时间</th><th>操作</th></tr></thead><tbody>';
+        html += '<table><thead><tr><th>会话 ID</th><th>用户</th><th>消息数</th><th>满意度</th><th>状态</th><th>平均响应时长</th><th>来源页面</th><th>设备</th><th>开始时间</th><th>结束时间</th><th>操作</th></tr></thead><tbody>';
         data.list.forEach(function (s) {
           var shortSession = s.session_id.length > 16 ? s.session_id.substr(0, 16) + '...' : s.session_id;
           var shortUser = s.user_id.length > 14 ? s.user_id.substr(0, 14) + '...' : s.user_id;
           var shortUrl = s.page_url ? (s.page_url.length > 30 ? s.page_url.substr(0, 30) + '...' : s.page_url) : '-';
+          var feedbackCell;
+          if (s.feedback_rating) {
+            var r = Number(s.feedback_rating);
+            var filled = '★'.repeat(r);
+            var empty = '★'.repeat(5 - r);
+            var commentTitle = s.feedback_comment ? ('评价：' + s.feedback_comment) : '该用户未填写文字评价';
+            feedbackCell = '<span title="' + esc(commentTitle) + '" style="color:#fbbc04;white-space:nowrap;">' +
+              filled + '<span style="color:#ddd;">' + empty + '</span>' +
+              ' <span style="color:#666;font-size:12px;">' + r + '/5</span></span>';
+          } else {
+            feedbackCell = '<span style="color:#ccc;">-</span>';
+          }
           html += '<tr>' +
             '<td title="' + esc(s.session_id) + '">' + esc(shortSession) + '</td>' +
             '<td title="' + esc(s.user_id) + '">' + esc(shortUser) + '</td>' +
             '<td>' + (s.actual_msg_count || s.message_count) + '</td>' +
+            '<td>' + feedbackCell + '</td>' +
             '<td>' + (s.status === 'human' ? '<span class="tag tag-red">人工</span>' : '<span class="tag tag-blue">AI</span>') + '</td>' +
             '<td>' + (s.avg_response_time_ms > 0 ? Math.round(s.avg_response_time_ms) + ' ms' : '-') + '</td>' +
             '<td title="' + esc(s.page_url || '') + '">' + esc(shortUrl) + '</td>' +
@@ -339,11 +352,38 @@
   // ========== 会话详情（聊天记录） ==========
   function renderSessionDetail(params) {
     var sessionId = params.sessionId;
-    api('/sessions/' + encodeURIComponent(sessionId) + '/messages')
-      .then(function (messages) {
+    Promise.all([
+      api('/sessions/' + encodeURIComponent(sessionId) + '/messages'),
+      api('/sessions/' + encodeURIComponent(sessionId) + '/feedback')
+    ])
+      .then(function (results) {
+        var messages = results[0];
+        var fb = results[1];
         var html = '<button class="back-btn" id="back-to-sessions">← 返回会话列表</button>';
         html += '<h1 class="page-title">聊天记录</h1>';
         html += '<p style="color:#888;font-size:13px;margin-bottom:16px;">会话 ID: ' + esc(sessionId) + '</p>';
+
+        html += '<div class="card feedback-card-admin" style="margin-bottom:16px;">';
+        html += '<div class="card-header">用户评价</div>';
+        if (fb) {
+          var r = Number(fb.rating);
+          var filled = '★'.repeat(r);
+          var empty = '★'.repeat(5 - r);
+          html += '<div class="feedback-admin-body">' +
+            '<div class="feedback-admin-stars">' +
+              '<span style="color:#fbbc04;">' + filled + '</span>' +
+              '<span style="color:#ddd;">' + empty + '</span>' +
+              ' <span style="color:#666;margin-left:8px;font-size:14px;">' + r + '/5</span>' +
+            '</div>' +
+            '<div class="feedback-admin-comment">' +
+              (fb.comment ? esc(fb.comment) : '<span style="color:#aaa;">用户未填写文字评价</span>') +
+            '</div>' +
+            '<div class="feedback-admin-time">提交于 ' + fmtDate(fb.created_at) + '</div>' +
+          '</div>';
+        } else {
+          html += '<div class="empty-state" style="padding:20px;"><p>该会话暂无用户评价</p></div>';
+        }
+        html += '</div>';
 
         html += '<div class="card"><div class="chat-panel">';
         if (messages.length === 0) {

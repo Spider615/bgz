@@ -255,9 +255,13 @@ router.get('/sessions', async (req, res) => {
     const [sessions] = await pool.query(`
       SELECT
         s.*,
+        f.rating as feedback_rating,
+        f.comment as feedback_comment,
+        f.created_at as feedback_at,
         (SELECT COUNT(*) FROM messages WHERE session_id = s.session_id) as actual_msg_count,
         (SELECT ROUND(COALESCE(AVG(response_time_ms), 0)) FROM messages WHERE session_id = s.session_id AND response_time_ms IS NOT NULL AND response_time_ms > 0) as avg_response_time_ms
       FROM sessions s
+      LEFT JOIN feedbacks f ON f.session_id = s.session_id
       ORDER BY s.started_at DESC
       LIMIT ? OFFSET ?
     `, [pageSize, offset]);
@@ -286,6 +290,23 @@ router.get('/sessions/:sessionId/messages', async (req, res) => {
     res.json({ code: 0, data: messages });
   } catch (err) {
     console.error('[Admin] session messages error:', err);
+    res.status(500).json({ code: -1, message: '服务器错误' });
+  }
+});
+
+// ========== 某个会话的满意度评价 ==========
+
+router.get('/sessions/:sessionId/feedback', async (req, res) => {
+  const { sessionId } = req.params;
+  try {
+    const [[row]] = await pool.query(
+      `SELECT session_id, user_id, rating, comment, created_at
+       FROM feedbacks WHERE session_id = ?`,
+      [sessionId]
+    );
+    res.json({ code: 0, data: row || null });
+  } catch (err) {
+    console.error('[Admin] session feedback error:', err);
     res.status(500).json({ code: -1, message: '服务器错误' });
   }
 });
