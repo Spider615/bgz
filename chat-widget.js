@@ -580,10 +580,18 @@
       });
     }
 
-    if (config.welcomeMessage) {
-      appendMessageDOM('bot', config.welcomeMessage, true);
+    if (config._inactive) {
+      appendMessageDOM('bot', '⚠️ 当前智能体已停用，暂时无法提供服务。请联系管理员启用后再试。', false);
+      var inputArea = document.querySelector('#ai-chat-window .chat-input-area');
+      if (inputArea) inputArea.style.display = 'none';
+      var actionBar = document.getElementById('ai-chat-action-bar');
+      if (actionBar) actionBar.style.display = 'none';
+    } else {
+      if (config.welcomeMessage) {
+        appendMessageDOM('bot', config.welcomeMessage, true);
+      }
+      addQuickActions();
     }
-    addQuickActions();
   }
 
   function positionBubble(bubble) {
@@ -1530,8 +1538,14 @@
     if (!url) return Promise.resolve(null);
 
     return fetch(url)
-      .then(function (res) { return res.json(); })
+      .then(function (res) {
+        if (!res.ok && res.status === 404) {
+          return { code: -1, message: '智能体不存在' };
+        }
+        return res.json();
+      })
       .then(function (data) {
+        if (data.inactive) return { _inactive: true, _message: data.message || '该智能体已停用' };
         if (data.code !== 0 || !data.data) return null;
         return data.data;
       })
@@ -1543,6 +1557,7 @@
 
   function applyAgentConfig(agentConfig) {
     if (!agentConfig) return;
+    if (agentConfig._inactive) return;
     // 展示类字段：只要远程有值就覆盖（允许空字符串覆盖默认值）
     if ('name' in agentConfig) config.title = agentConfig.name || config.title;
     if ('subtitle' in agentConfig) config.subtitle = agentConfig.subtitle || config.subtitle;
@@ -1597,9 +1612,15 @@
       // 始终尝试从服务器拉取智能体配置
       var agentId = config.agentId;
       fetchAgentConfig(agentId).then(function (agentConfig) {
+        if (agentConfig && agentConfig._inactive) {
+          config._inactive = true;
+          config._inactiveMessage = agentConfig._message;
+        }
         applyAgentConfig(agentConfig);
         rebuildWidget();
-        getAccessToken().catch(function () {});
+        if (!config._inactive) {
+          getAccessToken().catch(function () {});
+        }
       });
     },
     switchAgent: function (agentId) {
@@ -1679,12 +1700,18 @@
       // 如果 init() 已被手动调用，跳过 autoInit 的构建
       if (widgetBuilt) return;
       widgetBuilt = true;
+      if (agentConfig && agentConfig._inactive) {
+        config._inactive = true;
+        config._inactiveMessage = agentConfig._message;
+      }
       applyAgentConfig(agentConfig);
       injectStyles();
       buildWidget();
-      getAccessToken().catch(function (err) {
-        console.warn('[AI Chat Widget] Pre-auth failed, will retry on first message:', err.message);
-      });
+      if (!config._inactive) {
+        getAccessToken().catch(function (err) {
+          console.warn('[AI Chat Widget] Pre-auth failed, will retry on first message:', err.message);
+        });
+      }
     });
 
     // 页面关闭时上报剩余事件

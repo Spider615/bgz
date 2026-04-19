@@ -35,11 +35,14 @@ app.get('/api/agents/default/config', async (req, res) => {
   const { pool } = require('./db');
   try {
     const [[agent]] = await pool.query(
-      `SELECT agent_id, name, subtitle, welcome_message, preset_questions, primary_color, bot_id, access_key_id, access_key_secret, api_base
-       FROM agents WHERE is_default = 1 AND is_active = 1 LIMIT 1`
+      `SELECT agent_id, name, subtitle, welcome_message, preset_questions, primary_color, bot_id, access_key_id, access_key_secret, api_base, is_active
+       FROM agents WHERE is_default = 1 LIMIT 1`
     );
     if (!agent) {
       return res.json({ code: 0, data: null });
+    }
+    if (!agent.is_active) {
+      return res.json({ code: 0, data: null, inactive: true, message: '默认智能体已停用' });
     }
     agent.preset_questions = typeof agent.preset_questions === 'string'
       ? JSON.parse(agent.preset_questions)
@@ -56,12 +59,15 @@ app.get('/api/agents/:agentId/config', async (req, res) => {
   const { pool } = require('./db');
   try {
     const [[agent]] = await pool.query(
-      `SELECT agent_id, name, subtitle, welcome_message, preset_questions, primary_color, bot_id, access_key_id, access_key_secret, api_base
-       FROM agents WHERE agent_id = ? AND is_active = 1`,
+      `SELECT agent_id, name, subtitle, welcome_message, preset_questions, primary_color, bot_id, access_key_id, access_key_secret, api_base, is_active
+       FROM agents WHERE agent_id = ?`,
       [req.params.agentId]
     );
     if (!agent) {
-      return res.status(404).json({ code: -1, message: '智能体不存在或已停用' });
+      return res.status(404).json({ code: -1, message: '智能体不存在' });
+    }
+    if (!agent.is_active) {
+      return res.json({ code: 0, data: null, inactive: true, message: '该智能体已停用' });
     }
     agent.preset_questions = typeof agent.preset_questions === 'string'
       ? JSON.parse(agent.preset_questions)
